@@ -23,7 +23,7 @@ const T = {
     make: 'Marca', model: 'Modelo', year: 'Año', engine: 'Motor', transmission: 'Cambio',
     skip: 'No lo sé / todos', filter: 'Filtrar…', index: 'Índice', search: 'Buscar',
     searchHint: 'Buscar en los manuales de este vehículo', nothing: 'Nada por aquí.', change: 'Cambiar',
-    sources: 'Manuales disponibles', results: 'resultados',
+    sources: 'Manuales disponibles', results: 'resultados', related: 'El mismo vehículo en otros manuales',
   },
   en: {
     vin: 'Search by VIN', vinHint: '17 characters, on the registration papers or under the windscreen', go: 'Search',
@@ -31,7 +31,7 @@ const T = {
     make: 'Make', model: 'Model', year: 'Year', engine: 'Engine', transmission: 'Transmission',
     skip: "Don't know / all", filter: 'Filter…', index: 'Contents', search: 'Search',
     searchHint: "Search this vehicle's manuals", nothing: 'Nothing here.', change: 'Change',
-    sources: 'Available manuals', results: 'results',
+    sources: 'Available manuals', results: 'results', related: 'The same vehicle in other manuals',
   },
 };
 const t = k => (T[lang] || T.en)[k] ?? T.en[k];
@@ -181,6 +181,14 @@ async function vehicle(src, ctx, pathStr) {
     return;
   }
   view.innerHTML = vehicleHeader(src, ctx, label, 'index') + crumbs + nodeList(src, ctx, path, nodes);
+  if (!path.length) {
+    const rel = await api(`/api/s/${src}/related`, { ctx }).catch(() => []);
+    if (rel.length) {
+      const titles = Object.fromEntries(store.get('sources', []).map(s => [s.id, s.title]));
+      view.insertAdjacentHTML('beforeend', `<h2>${t('related')}</h2><ul class="list">${rel.map(r => `
+        <li><a href="#/v/${r.source}/${encodeURIComponent(r.ctx)}">${icon.car}<span class="lbl">${esc(r.label)}<span class="sub">${esc(titles[r.source] || r.source)}</span></span>${icon.chev}</a></li>`).join('')}</ul>`);
+    }
+  }
 }
 
 async function search(src, ctx, q) {

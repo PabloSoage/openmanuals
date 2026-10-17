@@ -7,6 +7,7 @@
 
 mod globaltis;
 mod pack;
+mod tree;
 mod vcr;
 
 use axum::{
@@ -82,6 +83,13 @@ fn open_packs(dir: &std::path::Path) -> BTreeMap<String, Source> {
                     continue;
                 }
             },
+            "tree" => match tree::Tree::open(&p) {
+                Ok(t) => Arc::new(t),
+                Err(e) => {
+                    eprintln!("{}: {e}", p.display());
+                    continue;
+                }
+            },
             other => {
                 eprintln!("{}: unknown source kind {other:?}", p.display());
                 continue;
@@ -112,6 +120,7 @@ async fn main() {
     let app = Router::new()
         .route("/api/sources", get(list_sources))
         .route("/api/vin/{vin}", get(vin))
+        .route("/api/s/{src}/related", get(related))
         .route("/api/s/{src}/options", get(options))
         .route("/api/s/{src}/describe", get(describe))
         .route("/api/s/{src}/roots", get(roots))
@@ -172,6 +181,25 @@ async fn vin(State(s): State<Sources>, Path(v): Path<String>, Query(q): Query<Q>
         })
         .await,
     )
+}
+
+/// The same vehicle in the other sources.
+async fn related(State(s): State<Sources>, Path(src): Path<String>, Query(q): Query<Q>) -> Result<impl IntoResponse, StatusCode> {
+    let p = pack(&s, &src)?;
+    let lang = q.lang();
+    Ok(Json(
+        blocking(move || {
+            let keys = p.keys(&q.ctx(), &lang);
+            let mut out = Vec::new();
+            for (id, other) in s.iter().filter(|(id, _)| **id != src) {
+                for m in other.pack.find(&keys, &lang) {
+                    out.push(VinAnswer { source: id.clone(), label: m.label, ctx: m.ctx.to_string() });
+                }
+            }
+            out
+        })
+        .await,
+    ))
 }
 
 async fn options(State(s): State<Sources>, Path(src): Path<String>, Query(q): Query<Q>) -> Result<impl IntoResponse, StatusCode> {

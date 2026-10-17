@@ -4,7 +4,7 @@
 //! engine 7, transmission 8); every tree node, document and paragraph carries a
 //! restriction over the same domains (see `vcr`).
 
-use crate::pack::{Doc, Lang, Node, Option_, Pack, Hit, VinMatch};
+use crate::pack::{Doc, Hit, Lang, Node, Option_, Pack, VinMatch};
 use crate::vcr::{Context, Expr};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{BTreeMap, HashMap};
@@ -320,6 +320,18 @@ impl Pack for GlobalTis {
             .collect()
     }
 
+    fn keys(&self, ctx: &Context, lang: &Lang) -> crate::pack::Keys {
+        let c = self.conn();
+        let one = |d: i64| ctx.get(d).and_then(|s| s.iter().next().copied()).and_then(|v| self.label(&c, d, v, lang));
+        // "ASTRA-J" -> "ASTRA"; "1.7L (LPV)" -> "LPV"
+        let model = one(MODEL).unwrap_or_default().split(['-', ' ', '/']).next().unwrap_or("").to_string();
+        let engines = one(ENGINE)
+            .and_then(|e| Some(e[e.find('(')? + 1..e.find(')')?].trim().to_string()))
+            .into_iter()
+            .collect();
+        crate::pack::Keys { model, engines }
+    }
+
     fn roots(&self, ctx: &Context, lang: &Lang) -> Vec<Node> {
         let c = self.conn();
         let mut out = Vec::new();
@@ -434,8 +446,7 @@ impl Pack for GlobalTis {
         let rows: Vec<i64> = s.query_map(params![query, loc], |r| r.get(0)).unwrap().flatten().collect();
         let mut vcrs = c.prepare_cached("SELECT vcr FROM toc_content WHERE doc = ?1").unwrap();
         let mut out = Vec::new();
-        let words: Vec<String> =
-            q.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(fold).collect();
+        let words = search_words(q);
         for rowid in rows {
             let id = rowid >> 5;
             let v: Vec<i64> = vcrs.query_map([id], |r| r.get(0)).unwrap().flatten().collect();
@@ -462,8 +473,13 @@ fn tr(lang: &Lang, en: &str, es: &str) -> String {
     if lang.0 == "es" { es } else { en }.to_string()
 }
 
+/// The searched words, folded.
+pub fn search_words(q: &str) -> Vec<String> {
+    q.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(fold).collect()
+}
+
 /// Lower case without accents, as the index sees words.
-fn fold(w: &str) -> String {
+pub fn fold(w: &str) -> String {
     w.chars()
         .flat_map(char::to_lowercase)
         .map(|c| match c {
@@ -482,7 +498,7 @@ fn fold(w: &str) -> String {
 
 /// A few words of the document around the first searched word, with the
 /// searched words in `<b>`.
-fn snippet(gz: &[u8], words: &[String]) -> String {
+pub fn snippet(gz: &[u8], words: &[String]) -> String {
     use std::io::Read;
     let mut html = String::new();
     if flate2::read::GzDecoder::new(gz).read_to_string(&mut html).is_err() {
@@ -569,7 +585,7 @@ fn entities(s: &str) -> String {
 }
 
 /// User words to an FTS5 query: every word, prefix-matched.
-fn fts_query(q: &str) -> String {
+pub fn fts_query(q: &str) -> String {
     q.split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
         .map(|w| format!("\"{}\"*", w))

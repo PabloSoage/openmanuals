@@ -75,4 +75,19 @@ pub trait Pack: Send + Sync {
     /// A link whose target depends on the vehicle.
     fn cell(&self, targets: &str, ctx: &Context, lang: &Lang) -> Option<i64>;
     fn search(&self, q: &str, ctx: &Context, lang: &Lang, limit: usize) -> Vec<Hit>;
+    /// Words that identify the vehicle across sources: model name and engine
+    /// codes (GM RPO such as `LPV`, or the maker's own).
+    fn keys(&self, _ctx: &Context, _lang: &Lang) -> Keys {
+        Keys::default()
+    }
+    /// Vehicles of this source that carry those keys.
+    fn find(&self, _keys: &Keys, _lang: &Lang) -> Vec<VinMatch> {
+        vec![]
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Keys {
+    pub model: String,
+    pub engines: Vec<String>,
 }
