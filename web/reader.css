@@ -1,0 +1,19 @@
+/* added to every document page */
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0 auto !important; padding: 12px 14px 40px !important; max-width: 980px;
+  overflow-wrap: anywhere; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.45; background: #fff; color: #1b1f24;
+}
+img { max-width: 100%; height: auto; }
+img.om-zoomable { cursor: zoom-in; }
+table { max-width: 100%; border-collapse: collapse; }
+td, th { overflow-wrap: anywhere; }
+.om-hidden { display: none !important; }
+@media (max-width: 700px) {
+  body { font-size: 15px; }
+  table { width: 100% !important; }
+  col, td, th { width: auto !important; }
+  td, th { padding: 4px !important; }
+  h1, .title, p.title { font-size: 19px !important; }
+}
