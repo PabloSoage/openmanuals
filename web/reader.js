@@ -42,14 +42,14 @@
 
   const parent = window.parent !== window ? window.parent : null;
   function route(url) {
-    const m = url.pathname.match(/^\/api\/s\/([^/]+)\/(doc|img|cell)\/?(\d*)/);
+    const m = url.pathname.match(/^\/api\/s\/([^/]+)\/(doc|img|cell|lt)\/?(\w*)/);
     if (!m) return false;
     if (m[2] === 'doc') {
       if (Number(m[3]) === Number(location.pathname.split('/').pop()) && url.hash) return false;
       if (parent) { parent.postMessage({ type: 'doc', id: Number(m[3]) }, location.origin); return true; }
     }
     if (m[2] === 'img' && parent) { parent.postMessage({ type: 'image', url: url.pathname }, location.origin); return true; }
-    if (m[2] === 'cell') {
+    if (m[2] === 'cell' || m[2] === 'lt') {
       url.searchParams.set('lang', lang);
       url.searchParams.set('ctx', qs.get('ctx') || '');
       location.href = url.href;

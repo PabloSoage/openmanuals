@@ -130,6 +130,7 @@ async fn main() {
         .route("/api/s/{src}/img/{id}", get(image))
         .route("/api/s/{src}/static/{name}", get(static_file))
         .route("/api/s/{src}/cell", get(cell))
+        .route("/api/s/{src}/lt/{op}", get(labour))
         .fallback(get(web))
         .with_state(sources);
     let l = tokio::net::TcpListener::bind(&listen).await.expect("listen");
@@ -290,6 +291,19 @@ async fn cell(State(s): State<Sources>, Path(src): Path<String>, Query(q): Query
     let c = q.c.clone();
     let id = blocking(move || p.cell(&c, &ctx, &lang)).await.ok_or(StatusCode::NOT_FOUND)?;
     Ok(Redirect::temporary(&format!("/api/s/{src}/doc/{id}?lang={}&ctx={}", q.lang().0, q.ctx)).into_response())
+}
+
+async fn labour(State(s): State<Sources>, Path((src, op)): Path<(String, String)>, Query(q): Query<Q>) -> Result<Response, StatusCode> {
+    let p = pack(&s, &src)?;
+    let html = blocking(move || p.labour(&op, &q.ctx(), &q.lang())).await.ok_or(StatusCode::NOT_FOUND)?;
+    let html = html.replacen(
+        "<head>",
+        "<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><link rel=\"stylesheet\" href=\"/reader.css\">",
+        1,
+    );
+    let mut r = Response::new(Body::from(html));
+    r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    Ok(r)
 }
 
 async fn web(uri: axum::http::Uri) -> Response {

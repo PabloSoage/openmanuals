@@ -320,6 +320,95 @@ impl Pack for GlobalTis {
             .collect()
     }
 
+    fn labour(&self, op: &str, ctx: &Context, lang: &Lang) -> Option<String> {
+        let c = self.conn();
+        let model = ctx.get(MODEL).and_then(|s| s.iter().next().copied()).and_then(|v| self.label(&c, MODEL, v, lang))?;
+        let mcs: Vec<i64> = c
+            .prepare_cached("SELECT DISTINCT mc FROM lt_catalog WHERE model = ?1")
+            .ok()?
+            .query_map([&model], |r| r.get(0))
+            .ok()?
+            .flatten()
+            .collect();
+        let lc_of = |code: &str| -> Option<i64> {
+            c.query_row("SELECT lc FROM lt_lang WHERE code = ?1", [code], |r| r.get(0)).optional().ok().flatten()
+        };
+        let lcs: Vec<i64> = [lang.0.as_str(), "en", "de"].iter().filter_map(|l| lc_of(l)).collect();
+        let engine = ctx.get(ENGINE).and_then(|s| s.iter().next().copied()).and_then(|v| self.label(&c, ENGINE, v, lang));
+        let base: String = op.chars().take(7).collect();
+        let text = |mc: i64, nr: &str, table: &str| -> Option<String> {
+            lcs.iter().find_map(|lc| {
+                c.query_row(
+                    &format!("SELECT text FROM {table} WHERE mc = ?1 AND nr = ?2 AND lc = ?3"),
+                    params![mc, nr, lc],
+                    |r| r.get::<_, String>(0),
+                )
+                .optional()
+                .ok()
+                .flatten()
+                .filter(|t| !t.trim().is_empty())
+            })
+        };
+        let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;");
+        let mut rows = String::new();
+        let mut title = None;
+        for mc in &mcs {
+            title = title.or_else(|| text(*mc, &base, "lt_text"));
+            let mut s = c
+                .prepare_cached("SELECT nr, minutes FROM lt_time WHERE mc = ?1 AND nr LIKE ?2 ORDER BY nr")
+                .ok()?;
+            let ops: Vec<(String, i64)> =
+                s.query_map(params![mc, format!("{base}%")], |r| Ok((r.get(0)?, r.get(1)?))).ok()?.flatten().collect();
+            for (nr, min) in ops {
+                let name = text(*mc, &nr, "lt_text").unwrap_or_default();
+                let note = text(*mc, &nr, "lt_desc").map(|d| format!("<div class=\"note\">{}</div>", esc(&d))).unwrap_or_default();
+                let time = if min >= 0 {
+                    format!("{:.1} h<div class=\"note\">{} min · {} AW</div>", min as f64 / 60.0, min, (min as f64 / 5.0).round())
+                } else {
+                    "—".to_string()
+                };
+                let mark = if nr.starts_with(op) && nr.len() == op.len() { " class=\"this\"" } else { "" };
+                // times by special key (engine, gearbox, equipment)
+                let mut sx = c.prepare_cached("SELECT sx, minutes FROM lt_sx WHERE mc = ?1 AND nr = ?2").ok()?;
+                let variants: Vec<(String, i64)> =
+                    sx.query_map(params![mc, nr], |r| Ok((r.get(0)?, r.get(1)?))).ok()?.flatten().collect();
+                if variants.is_empty() || min > 0 {
+                    rows.push_str(&format!("<tr{mark}><td class=\"nr\">{}</td><td>{}{}</td><td class=\"t\">{}</td></tr>", esc(&nr), esc(&name), note, time));
+                } else {
+                    rows.push_str(&format!("<tr{mark}><td class=\"nr\">{}</td><td colspan=\"2\">{}{}</td></tr>", esc(&nr), esc(&name), note));
+                }
+                for (key, m) in variants {
+                    let cond = lcs
+                        .iter()
+                        .find_map(|lc| {
+                            c.query_row("SELECT text FROM lt_sx_text WHERE sx = ?1 AND lc = ?2", params![key, lc], |r| r.get::<_, String>(0))
+                                .optional()
+                                .ok()
+                                .flatten()
+                        })
+                        .unwrap_or(key);
+                    let mine = engine.as_deref().is_some_and(|e| cond.contains(e));
+                    rows.push_str(&format!(
+                        "<tr class=\"sx{}\"><td></td><td>{}</td><td class=\"t\">{:.1} h<div class=\"note\">{} min</div></td></tr>",
+                        if mine { " this" } else { "" },
+                        esc(&cond),
+                        m as f64 / 60.0,
+                        m
+                    ));
+                }
+            }
+        }
+        if rows.is_empty() {
+            return None;
+        }
+        let title = title.unwrap_or_else(|| op.to_string());
+        Some(format!(
+            "<!doctype html><html><head><meta charset=\"utf-8\"><title>{t}</title><style>             body{{font:16px/1.45 system-ui,sans-serif}}table{{border-collapse:collapse;width:100%}}             td{{padding:6px;border-bottom:1px solid #e3e6ea;vertical-align:top}}.nr{{font-family:monospace;white-space:nowrap}}             .t{{text-align:right;font-weight:600;white-space:nowrap}}.note{{color:#667085;font-size:13px;font-weight:400}}             tr.this td{{background:#e7f0ff;font-weight:600}}tr.sx td{{font-size:14px}}</style></head><body><h1>{t}</h1><p class=\"note\">{m} · {op}</p>             <table>{rows}</table></body></html>",
+            t = esc(&title),
+            m = esc(&model),
+        ))
+    }
+
     fn keys(&self, ctx: &Context, lang: &Lang) -> crate::pack::Keys {
         let c = self.conn();
         let one = |d: i64| ctx.get(d).and_then(|s| s.iter().next().copied()).and_then(|v| self.label(&c, d, v, lang));

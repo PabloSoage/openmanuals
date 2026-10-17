@@ -75,6 +75,10 @@ pub trait Pack: Send + Sync {
     /// A link whose target depends on the vehicle.
     fn cell(&self, targets: &str, ctx: &Context, lang: &Lang) -> Option<i64>;
     fn search(&self, q: &str, ctx: &Context, lang: &Lang, limit: usize) -> Vec<Hit>;
+    /// Labour time of an operation for the vehicle, as an HTML page.
+    fn labour(&self, _op: &str, _ctx: &Context, _lang: &Lang) -> Option<String> {
+        None
+    }
     /// Words that identify the vehicle across sources: model name and engine
     /// codes (GM RPO such as `LPV`, or the maker's own).
     fn keys(&self, _ctx: &Context, _lang: &Lang) -> Keys {
