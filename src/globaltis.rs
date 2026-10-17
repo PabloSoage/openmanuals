@@ -28,6 +28,7 @@ pub struct GlobalTis {
     pool: Vec<Mutex<Connection>>,
     next: std::sync::atomic::AtomicUsize,
     vcr: OnceLock<HashMap<i64, Arc<Expr>>>,
+    parents: OnceLock<HashMap<i64, i64>>,
     locales: HashMap<String, i64>,
 }
 
@@ -47,7 +48,9 @@ impl GlobalTis {
                 .filter_map(Result::ok)
                 .collect()
         };
-        Ok(Self { pool, next: Default::default(), vcr: OnceLock::new(), locales })
+        let vcr = OnceLock::new();
+        let _ = vcr.set(Self::load_vcr(&pool[0].lock().unwrap())?);
+        Ok(Self { pool, next: Default::default(), vcr, parents: OnceLock::new(), locales })
     }
 
     fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -59,16 +62,18 @@ impl GlobalTis {
         if id < 0 {
             return None;
         }
-        let map = self.vcr.get_or_init(|| {
-            let c = self.conn();
-            let mut s = c.prepare("SELECT id, text FROM vcr").unwrap();
-            s.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
-                .unwrap()
-                .filter_map(Result::ok)
-                .filter_map(|(i, t)| Some((i, Arc::new(Expr::parse(&t)?))))
-                .collect()
-        });
+        let map = self.vcr.get().expect("loaded at open");
         map.get(&id).cloned()
+    }
+
+    fn load_vcr(c: &Connection) -> rusqlite::Result<HashMap<i64, Arc<Expr>>> {
+        let mut s = c.prepare("SELECT id, text FROM vcr")?;
+        let map = s
+            .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+            .filter_map(Result::ok)
+            .filter_map(|(i, t)| Some((i, Arc::new(Expr::parse(&t)?))))
+            .collect();
+        Ok(map)
     }
 
     fn allows(&self, vcr: i64, ctx: &Context) -> bool {
@@ -142,6 +147,22 @@ impl GlobalTis {
             }
         }
         None
+    }
+
+    /// The top of the tree a node belongs to.
+    fn root_of(&self, c: &Connection, mut node: i64) -> i64 {
+        // takes the caller's connection: locking another one of the pool could wait on itself
+        let parents = self.parents.get_or_init(|| {
+            let mut s = c.prepare("SELECT id, parent FROM toc").unwrap();
+            s.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))).unwrap().flatten().collect()
+        });
+        for _ in 0..64 {
+            match parents.get(&node) {
+                Some(&p) if p >= 0 => node = p,
+                _ => break,
+            }
+        }
+        node
     }
 
     /// The per-model tree for this vehicle (make, model and year must be known).
@@ -533,15 +554,23 @@ impl Pack for GlobalTis {
             )
             .unwrap();
         let rows: Vec<i64> = s.query_map(params![query, loc], |r| r.get(0)).unwrap().flatten().collect();
-        let mut vcrs = c.prepare_cached("SELECT vcr FROM toc_content WHERE doc = ?1").unwrap();
-        let mut out = Vec::new();
-        let words = search_words(q);
-        for rowid in rows {
+        let mut places = c.prepare_cached("SELECT toc, vcr FROM toc_content WHERE doc = ?1").unwrap();
+        // pages in the tree of this model and year come first, then the rest that may apply
+        let model_root = self.model_root(&c, &ctx);
+        let mut ranked = Vec::new();
+        for (rank, rowid) in rows.into_iter().enumerate() {
             let id = rowid >> 5;
-            let v: Vec<i64> = vcrs.query_map([id], |r| r.get(0)).unwrap().flatten().collect();
-            if !v.is_empty() && !v.iter().any(|x| self.allows(*x, &ctx)) {
+            let v: Vec<(i64, i64)> = places.query_map([id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().flatten().collect();
+            if !v.is_empty() && !v.iter().any(|(_, x)| self.allows(*x, &ctx)) {
                 continue;
             }
+            let own = model_root.is_some_and(|m| v.iter().any(|(t, _)| self.root_of(&c, *t) == m));
+            ranked.push((!own, rank, id));
+        }
+        ranked.sort();
+        let mut out = Vec::new();
+        let words = search_words(q);
+        for (_, _, id) in ranked {
             let title = self.subject(&c, id, lang).unwrap_or_default();
             let html: Option<Vec<u8>> = c
                 .query_row("SELECT html FROM doc WHERE id = ?1 AND locale = ?2", params![id, loc], |r| r.get(0))
