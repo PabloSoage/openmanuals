@@ -307,6 +307,10 @@ async fn labour(State(s): State<Sources>, Path((src, op)): Path<(String, String)
 }
 
 async fn web(uri: axum::http::Uri) -> Response {
+    // an unknown API path is an error, not the app
+    if uri.path().starts_with("/api/") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() || Web::get(path).is_none() { "index.html" } else { path };
     match Web::get(path) {

@@ -46,7 +46,7 @@
     if (!m) return false;
     if (m[2] === 'doc') {
       if (Number(m[3]) === Number(location.pathname.split('/').pop()) && url.hash) return false;
-      if (parent) { parent.postMessage({ type: 'doc', id: Number(m[3]) }, location.origin); return true; }
+      if (parent) { parent.postMessage({ type: 'doc', id: Number(m[3]), anchor: url.hash.slice(1) }, location.origin); return true; }
     }
     if (m[2] === 'img' && parent) { parent.postMessage({ type: 'image', url: url.pathname }, location.origin); return true; }
     if (m[2] === 'cell' || m[2] === 'lt') {
@@ -58,10 +58,30 @@
     return false;
   }
 
+  // GlobalTIS link forms the pack builder may have left as they were
+  function rawTarget(href) {
+    let m = href.match(/^\{?LINK_SIO:ID:(\d+)(?::BM:([^}]*))?\}?$/);
+    if (m) return new URL(`doc/${m[1]}${m[2] ? '#' + m[2] : ''}`, document.baseURI);
+    m = href.match(/^\{LINK_CELL_TARGET:(.*)\}$/s);
+    if (m) {
+      const body = m[1].startsWith('LIST:') ? m[1].slice(5) : m[1];
+      const targets = body.split(/\\?\//).filter(p => p.startsWith('ID:')).map(p => {
+        const t = p.replace(/\\$/, '').match(/^ID:(\d+)(?::VCR:(.*))?$/s);
+        return t ? `${t[1]}~${(t[2] || '').trim()}` : null;
+      }).filter(Boolean);
+      return new URL(`cell?c=${encodeURIComponent(targets.join(';'))}`, document.baseURI);
+    }
+    return null;
+  }
+
   document.addEventListener('click', e => {
     const a = e.target.closest('a[href]');
     if (a) {
-      if (route(new URL(a.href, location.href))) e.preventDefault();
+      const href = a.getAttribute('href');
+      if (/^javascript:history\.(back|forward)/.test(href)) { e.preventDefault(); history[href.includes('back') ? 'back' : 'forward'](); return; }
+      const url = rawTarget(href) || new URL(a.href, location.href);
+      if (route(url)) e.preventDefault();
+      else if (rawTarget(href)) { e.preventDefault(); location.href = url.href; }
       return;
     }
     const img = e.target.closest('img');

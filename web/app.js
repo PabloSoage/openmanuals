@@ -208,10 +208,10 @@ async function search(src, ctx, q) {
     : `<div class="empty">${t('nothing')}</div>`;
 }
 
-function docView(src, ctx, id) {
+function docView(src, ctx, id, anchor) {
   view.className = 'full';
   setTitle(labels[`n:${src}:${id}:${lang}`] || '');
-  const u = `/api/s/${src}/doc/${id}?lang=${lang}&ctx=${encodeURIComponent(ctx)}`;
+  const u = `/api/s/${src}/doc/${id}?lang=${lang}&ctx=${encodeURIComponent(ctx)}${anchor ? '#' + encodeURIComponent(anchor) : ''}`;
   view.innerHTML = `<iframe class="doc" src="${u}" title="document"></iframe>`;
   const fr = $('iframe', view);
   fr.onload = () => {
@@ -259,7 +259,7 @@ addEventListener('message', e => {
   if (e.origin !== location.origin || !e.data) return;
   const m = e.data;
   const r = parse();
-  if (m.type === 'doc' && r.src) location.hash = `#/d/${r.src}/${encodeURIComponent(r.ctx || '')}/${m.id}`;
+  if (m.type === 'doc' && r.src) location.hash = `#/d/${r.src}/${encodeURIComponent(r.ctx || '')}/${m.id}${m.anchor ? '/' + encodeURIComponent(m.anchor) : ''}`;
   if (m.type === 'image') openImage(m.url);
 });
 
@@ -275,7 +275,7 @@ function parse() {
     if (p[3] === 's') return { v: 'search', src: p[1], ctx: dec(p[2]), q: dec(p.slice(4).join('/')) };
     return { v: 'veh', src: p[1], ctx: dec(p[2]) };
   }
-  if (p[0] === 'd') return { v: 'doc', src: p[1], ctx: dec(p[2]), id: p[3] };
+  if (p[0] === 'd') return { v: 'doc', src: p[1], ctx: dec(p[2]), id: p[3], anchor: dec(p[4]) };
   return { v: 'home' };
 }
 
@@ -287,7 +287,7 @@ async function route() {
     if (r.v === 'pick') await pick(r.src, r.ctx);
     else if (r.v === 'veh') await vehicle(r.src, r.ctx, r.path);
     else if (r.v === 'search') await search(r.src, r.ctx, r.q);
-    else if (r.v === 'doc') docView(r.src, r.ctx, r.id);
+    else if (r.v === 'doc') docView(r.src, r.ctx, r.id, r.anchor);
     else await home();
   } catch (e) {
     view.innerHTML = `<div class="empty">Error: ${esc(e.message)}</div>`;
