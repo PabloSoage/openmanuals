@@ -74,4 +74,4 @@ All of them take `lang` (`es`, `en`, `de`, `pt`). `ctx` is the vehicle as
 
 ## Licence
 
-GPL-3.0-or-later. The manuals are not part of this repository.
+MIT, see [`LICENSE`](LICENSE). The manuals are not part of this repository.

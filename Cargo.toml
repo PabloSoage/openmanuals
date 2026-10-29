@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Pablo Soage <p.soage@udc.es>"]
-license = "GPL-3.0-or-later"
+license = "MIT"
 description = "Workshop manuals by VIN or model, served to a phone or a PC"
 publish = false
 
